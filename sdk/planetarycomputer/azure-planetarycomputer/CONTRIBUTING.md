@@ -10,7 +10,7 @@ For general Azure SDK for Python contribution guidance, see the [top-level CONTR
 
 ### 1. Update `tsp-location.yaml`
 
-Edit [tsp-location.yaml](tsp-location.yaml) to point to the desired spec commit and directory:
+Edit `tsp-location.yaml` to point to the desired spec commit and directory:
 
 ```yaml
 directory: specification/orbital/Microsoft.PlanetaryComputer
@@ -78,12 +78,6 @@ The code generator already produces a file-level suppression on line 1 of each `
 | `return super().__new__(cls)` (in `Model.__new__`) | `# pylint: disable=no-value-for-parameter` | False positive - pylint cannot resolve the MRO for `__new__` |
 
 > **Important:** After adding pylint suppressions, run `tox -e black` first - Black may reformat single-line imports into multi-line, which moves your `# pylint: disable` comments. If Black reformats the `_deserialize_xml` import into multiple lines, the `# pylint: disable=unused-import` comment must be on the `from ... import (` line, **not** on the closing `)` or the individual name line.
-
-### Sphinx Docstring Fixes
-
-As of TypeSpec Python emitter v0.60.1, the code generator produces Sphinx-compatible docstrings. No manual fixes are currently required. If Sphinx fails after a future regeneration, check `DataOperations.get_interval_legend` docstrings for:
-- Missing newline after JSON code blocks
-- Bullet continuation indentation issues
 
 ### Sample Updates
 
@@ -172,7 +166,7 @@ Before running tests in playback mode, you need to restore the recorded sessions
 test-proxy restore -a assets.json
 ```
 
-This clones the tag referenced in `assets.json` into `.assets/` (a gitignored directory). The current tag is in [assets.json](assets.json).
+This clones the tag referenced in `assets.json` into `.assets/` (a gitignored directory).
 
 ### Running tests in playback mode
 
