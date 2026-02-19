@@ -26,6 +26,22 @@ From the package root (`sdk/planetarycomputer/azure-planetarycomputer`):
 npx tsp-client update
 ```
 
+### 3. Clean up generated artifacts
+
+The code generator creates `generated_samples/` and `generated_tests/` directories that should **not** be committed. Delete them:
+
+```bash
+rm -rf generated_samples/ generated_tests/
+```
+
+### 4. Restore hand-written tests and samples
+
+The generator may overwrite files in `tests/` and `samples/`. Restore them from Git:
+
+```bash
+git checkout -- tests/ samples/
+```
+
 ---
 
 ## Known Manual Fixes on Generated Code
@@ -132,6 +148,139 @@ After running `npx tsp-client update`:
 - [ ] Add `# pylint: disable=unused-import` on the `from ... import (` line for `_deserialize_xml` (2 files)
 - [ ] Add `# pylint: disable=too-many-locals,too-many-branches,too-many-statements` inline on `build_data_get_mosaics_tile_request` (sync `_operations.py` only)
 - [ ] Add inline `# pylint: disable=no-value-for-parameter` to `Model.__new__` in `model_base.py`
+
+---
+
+## Testing
+
+This package uses the [Azure SDK test proxy](https://github.com/Azure/azure-sdk-tools/blob/main/tools/test-proxy/Azure.Sdk.Tools.TestProxy/README.md) with recorded HTTP sessions stored in the [azure-sdk-assets](https://github.com/Azure/azure-sdk-assets) repo. All commands below assume you are in the package root:
+
+```bash
+cd sdk/planetarycomputer/azure-planetarycomputer
+```
+
+### Environment setup
+
+Create a `.env` file in the package root (this file is gitignored) with your live resource credentials:
+
+```dotenv
+PLANETARYCOMPUTER_ENDPOINT=https://<your-geocatalog>.geocatalog.spatio.azure.com
+PLANETARYCOMPUTER_SUBSCRIPTION_ID=<subscription-id>
+PLANETARYCOMPUTER_TENANT_ID=<tenant-id>
+PLANETARYCOMPUTER_CLIENT_ID=<client-id>
+PLANETARYCOMPUTER_CLIENT_SECRET=<client-secret>
+PLANETARYCOMPUTER_COLLECTION_ID=<collection-id>
+PLANETARYCOMPUTER_ITEM_ID=<item-id>
+```
+
+The `conftest.py` calls `load_dotenv()` so these are loaded automatically by pytest.
+
+### Restoring recordings (first time / after pulling changes)
+
+Before running tests in playback mode, you need to restore the recorded sessions from the assets repo. The test proxy does this automatically on the first playback run, but you can also restore explicitly:
+
+```bash
+test-proxy restore -a assets.json
+```
+
+This clones the tag referenced in `assets.json` into `.assets/` (a gitignored directory). The current tag is in [assets.json](assets.json).
+
+### Running tests in playback mode
+
+Playback mode replays recorded HTTP sessions — no live Azure resources needed:
+
+```bash
+# PowerShell
+$env:AZURE_TEST_RUN_LIVE="false"
+pytest tests/ -v
+
+# Bash
+AZURE_TEST_RUN_LIVE=false pytest tests/ -v
+```
+
+You can also run a single test file:
+
+```bash
+pytest tests/test_planetary_computer_00_stac_collection.py -v
+```
+
+> **Tip:** Playback is the default when `AZURE_TEST_RUN_LIVE` is unset or `"false"`. You only need to set it explicitly if you previously set it to `"true"` in the same shell.
+
+### Recording tests (live mode)
+
+Recording mode runs tests against live Azure resources and captures all HTTP traffic for future playback. **Requires** the `.env` file to be set up with valid credentials.
+
+```bash
+# PowerShell
+$env:AZURE_TEST_RUN_LIVE="true"
+pytest tests/ -v
+
+# Bash
+AZURE_TEST_RUN_LIVE=true pytest tests/ -v
+```
+
+You can re-record individual test files:
+
+```bash
+$env:AZURE_TEST_RUN_LIVE="true"
+pytest tests/test_planetary_computer_03_sas.py -v
+pytest tests/test_planetary_computer_03_sas_async.py -v
+```
+
+> **Tip:** Always re-record **both** sync and async variants of a test file — they have separate recording files.
+
+> **Tip:** After changing sanitizers in `conftest.py`, **all 16 test files** (8 sync + 8 async) must be re-recorded to ensure consistent sanitization across all recordings.
+
+### Pushing recordings to the assets repo
+
+After recording, the new sessions are stored locally in `.assets/`. Push them to the shared assets repo:
+
+```bash
+test-proxy push -a assets.json
+```
+
+This creates a new tag in `Azure/azure-sdk-assets` and **updates `assets.json` with the new tag automatically**. Verify the new tag:
+
+```bash
+cat assets.json
+```
+
+> **Important:** Commit the updated `assets.json` alongside your code changes so CI can find the correct recordings.
+
+### Verifying playback after push
+
+Always verify that playback still works after pushing recordings:
+
+```bash
+$env:AZURE_TEST_RUN_LIVE="false"
+pytest tests/ -v
+```
+
+Expected result: **202 passed, 0 failed, 0 skipped**.
+
+### Test file structure
+
+| File | Tests | Description |
+|---|---|---|
+| `test_00_stac_collection` | 25 | STAC collection CRUD, thumbnail asset creation, metadata |
+| `test_01_stac_items` | 19 | STAC item CRUD and querying |
+| `test_02_stac_specification` | 13 | STAC API spec compliance (conformance, queryables) |
+| `test_03_sas` | 5 | SAS token operations (get, sign, revoke, download) |
+| `test_04_stac_item_tiler` | 19 | Tile rendering for individual STAC items |
+| `test_05_mosaics_tiler` | 9 | Mosaic tile rendering and static images |
+| `test_06_map_legends` | 5 | Map legend generation (continuous + classified) |
+| `test_07_collection_lifecycle` | 6 | Full collection create → replace → delete lifecycle |
+
+Each file has a sync and async variant (e.g., `test_00_stac_collection.py` and `test_00_stac_collection_async.py`).
+
+### Key tips
+
+- **Test ordering matters.** Tests within each file are numbered and run in order. For example, `test_10a_create_thumbnail_asset` in `test_00` creates the thumbnail that `test_11_get_collection_thumbnail` reads. Do not reorder or skip tests.
+- **Sanitizers are session-scoped.** All sanitizers in `conftest.py` apply to every test. If you add or change a sanitizer, all recordings become stale and must be re-recorded.
+- **`EnvironmentVariableLoader` interacts with sanitizers.** During playback, the `EnvironmentVariableLoader` (`PlanetaryComputerPreparer`) replaces real env var values with defaults (e.g., `naip-atl-2` → `naip-atl`). This happens *before* sanitizers run on the recording, so sanitizers must handle both original and post-replacement forms. See the secondary hash sanitizer in `conftest.py` for an example.
+- **The `.assets/` directory is gitignored.** Never commit it. It's managed entirely by `test-proxy`.
+- **SAS download timing.** `test_03`'s `test_04_signed_href_can_download_asset` uses `urlopen` to download via SAS URL. This occasionally gets 403 in live mode due to SAS delegation key timing when running in a full suite. It has retry logic (5 attempts, 15s delay). The download is skipped in playback mode, so it always passes in CI.
+- **Default sanitizer removals.** `conftest.py` removes default Azure SDK sanitizers `AZSDK3493`, `AZSDK3430`, and `AZSDK2003` because collection IDs and item IDs are public STAC data, not secrets.
 - [ ] Run `tox -e black` - formatting (may reformat imports; re-check pylint comment placement)
 - [ ] Restore `tests/` and `samples/` again if Black modified them
 - [ ] Run `tox -e pylint` - linting (should score 10.00/10)
