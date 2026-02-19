@@ -137,17 +137,6 @@ tox -e apistub -c ../../../eng/tox/tox.ini --root .
 
 > **Tip:** Running `black`, `pylint`, `mypy`, `pyright`, and `sphinx` locally catches the vast majority of CI failures before you push.
 
----
-
-## Quick-Reference Checklist
-
-After running `npx tsp-client update`:
-
-- [ ] Restore `tests/` and `samples/` - `git checkout -- tests/ samples/`
-- [ ] Add inline `# pylint: disable=import-error` to `MutableMapping` imports (3 files)
-- [ ] Add `# pylint: disable=unused-import` on the `from ... import (` line for `_deserialize_xml` (2 files)
-- [ ] Add `# pylint: disable=too-many-locals,too-many-branches,too-many-statements` inline on `build_data_get_mosaics_tile_request` (sync `_operations.py` only)
-- [ ] Add inline `# pylint: disable=no-value-for-parameter` to `Model.__new__` in `model_base.py`
 
 ---
 
@@ -203,8 +192,6 @@ You can also run a single test file:
 ```bash
 pytest tests/test_planetary_computer_00_stac_collection.py -v
 ```
-
-> **Tip:** Playback is the default when `AZURE_TEST_RUN_LIVE` is unset or `"false"`. You only need to set it explicitly if you previously set it to `"true"` in the same shell.
 
 ### Recording tests (live mode)
 
@@ -281,6 +268,18 @@ Each file has a sync and async variant (e.g., `test_00_stac_collection.py` and `
 - **The `.assets/` directory is gitignored.** Never commit it. It's managed entirely by `test-proxy`.
 - **SAS download timing.** `test_03`'s `test_04_signed_href_can_download_asset` uses `urlopen` to download via SAS URL. This occasionally gets 403 in live mode due to SAS delegation key timing when running in a full suite. It has retry logic (5 attempts, 15s delay). The download is skipped in playback mode, so it always passes in CI.
 - **Default sanitizer removals.** `conftest.py` removes default Azure SDK sanitizers `AZSDK3493`, `AZSDK3430`, and `AZSDK2003` because collection IDs and item IDs are public STAC data, not secrets.
+
+---
+
+## Quick-Reference Checklist
+
+After running `npx tsp-client update`:
+
+- [ ] Restore `tests/` and `samples/` - `git checkout -- tests/ samples/`
+- [ ] Add inline `# pylint: disable=import-error` to `MutableMapping` imports (3 files)
+- [ ] Add `# pylint: disable=unused-import` on the `from ... import (` line for `_deserialize_xml` (2 files)
+- [ ] Add `# pylint: disable=too-many-locals,too-many-branches,too-many-statements` inline on `build_data_get_mosaics_tile_request` (sync `_operations.py` only)
+- [ ] Add inline `# pylint: disable=no-value-for-parameter` to `Model.__new__` in `model_base.py`
 - [ ] Run `tox -e black` - formatting (may reformat imports; re-check pylint comment placement)
 - [ ] Restore `tests/` and `samples/` again if Black modified them
 - [ ] Run `tox -e pylint` - linting (should score 10.00/10)
