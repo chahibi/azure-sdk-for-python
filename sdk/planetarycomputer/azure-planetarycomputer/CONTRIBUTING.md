@@ -48,10 +48,11 @@ git checkout -- tests/ samples/
 
 The TypeSpec code generator does not emit certain comments or formatting that CI checks require. The following fixes must be **manually applied** after every regeneration.
 
+> **Critical workflow note:** Run `tox -e black` **before** adding pylint suppressions. Black (via the SDK's `run_black.py` wrapper) strips pylint disable comments from import lines and may reduce the file-level suppression on line 1. If you add suppressions first and then run Black, you will lose them and have to re-add them. The correct order is: (1) run Black, (2) restore tests/samples if Black modified them, (3) add all pylint suppressions, (4) run pylint to verify.
+
 ### Pylint Suppressions
 
-The code generator already produces a file-level suppression on line 1 of each `_operations.py`:
-`# pylint: disable=line-too-long,useless-suppression,too-many-lines`
+The code generator produces a file-level suppression on line 1 of each `_operations.py`. The exact contents vary by emitter version — for example, `@azure-tools/typespec-python@0.60.1` generates `# pylint: disable=too-many-lines,too-many-locals,too-many-branches,too-many-statements`. After Black runs, this is typically reduced to just `# pylint: disable=too-many-lines` because Black strips the additional suppressions.
 
 > **Warning:** Do **not** extend line 1 beyond ~70 characters. The Azure pylint `file-needs-copyright-header` check (`C4726`) reads only the first 200 bytes of the file. If line 1 is too long, it pushes the copyright header past the 200-byte boundary and the check fails.
 
@@ -77,11 +78,25 @@ The code generator already produces a file-level suppression on line 1 of each `
 | `from collections.abc import MutableMapping` | `# pylint: disable=import-error` | Not resolvable in the pylint virtualenv |
 | `return super().__new__(cls)` (in `Model.__new__`) | `# pylint: disable=no-value-for-parameter` | False positive - pylint cannot resolve the MRO for `__new__` |
 
-> **Important:** After adding pylint suppressions, run `tox -e black` first - Black may reformat single-line imports into multi-line, which moves your `# pylint: disable` comments. If Black reformats the `_deserialize_xml` import into multiple lines, the `# pylint: disable=unused-import` comment must be on the `from ... import (` line, **not** on the closing `)` or the individual name line.
+> **Important:** Black reformats the `_deserialize_xml` import into multiple lines. The `# pylint: disable=unused-import` comment must be on the `from ... import (` line, **not** on the closing `)` or the individual name line. Since Black strips these comments, always add suppressions **after** running Black.
 
-### Sample Updates
+### Sphinx Docstring Fixes
 
-If the TypeSpec renames or removes API operations, the hand-written samples under `samples/` and `samples/async/` must be updated to match. MyPy and Pyright (which also check samples) will catch these as type errors.
+When TypeSpec adds rich documentation (code blocks, bullet lists) to model descriptions, the emitter may produce RST that Sphinx rejects. Common issues:
+
+- **Code block closing merged with following text:** e.g., `]This example defines two intervals:` — the `]` from a JSON code block runs into the next paragraph. Fix by splitting onto separate lines with a blank line between.
+- **Bullet continuation not indented:** RST requires continuation lines in a bullet list to be indented to the bullet text column. If Sphinx reports "Bullet list ends without a blank line; unexpected unindent", add spaces to align the continuation with the bullet text.
+
+These fixes apply to both `azure/planetarycomputer/operations/_operations.py` and `azure/planetarycomputer/aio/operations/_operations.py` (the same docstring appears in both sync and async). Run `tox -e sphinx` to verify.
+
+### Sample and Test Updates
+
+If the TypeSpec renames or removes API operations, **both** the hand-written samples (`samples/`, `samples/async/`) **and** tests (`tests/`) must be updated to match:
+
+- **Operation renames:** Update all call sites. For example, if `list_collections` is renamed to `get_collections`, update `client.stac.list_collections()` → `client.stac.get_collections()` in both samples and tests. MyPy and Pyright check samples and will catch these as type errors, but **tests are not type-checked** — you must verify them manually or by running pytest.
+- **Return type changes:** When a return type changes from `dict[str, Any]` to a typed model (e.g., `QueryableDefinitionsResponse`, `ClassMapLegendResponse`), tests that use `isinstance(response, dict)` will fail because the models inherit from `MutableMapping`, not `dict`. Change these assertions to `isinstance(response, MutableMapping)` (import from `collections.abc`).
+
+> **Tip:** Recordings only become stale when the HTTP requests change (different URLs, headers, or bodies), not when Python method names are renamed. If the TypeSpec only renames an operation without changing the HTTP endpoint, existing recordings will still work in playback mode and re-recording is not necessary.
 
 ---
 
@@ -269,15 +284,19 @@ Each file has a sync and async variant (e.g., `test_00_stac_collection.py` and `
 
 After running `npx tsp-client update`:
 
-- [ ] Restore `tests/` and `samples/` - `git checkout -- tests/ samples/`
+- [ ] Delete `generated_samples/` and `generated_tests/`
+- [ ] Restore `tests/` and `samples/` — `git checkout -- tests/ samples/`
+- [ ] Run `tox -e black` — formatting (**must run before adding pylint suppressions**; Black strips them)
+- [ ] Restore `tests/` and `samples/` again if Black modified them
 - [ ] Add inline `# pylint: disable=import-error` to `MutableMapping` imports (3 files)
 - [ ] Add `# pylint: disable=unused-import` on the `from ... import (` line for `_deserialize_xml` (2 files)
 - [ ] Add `# pylint: disable=too-many-locals,too-many-branches,too-many-statements` inline on `build_data_get_mosaics_tile_request` (sync `_operations.py` only)
 - [ ] Add inline `# pylint: disable=no-value-for-parameter` to `Model.__new__` in `model_base.py`
-- [ ] Run `tox -e black` - formatting (may reformat imports; re-check pylint comment placement)
-- [ ] Restore `tests/` and `samples/` again if Black modified them
-- [ ] Run `tox -e pylint` - linting (should score 10.00/10)
-- [ ] Run `tox -e sphinx` - documentation
-- [ ] Run `tox -e mypy` and `tox -e pyright` - type checking (will catch renamed/removed APIs in samples)
+- [ ] Run `tox -e pylint` — linting (should score 10.00/10)
+- [ ] Run `tox -e sphinx` — documentation (check for RST issues in new/changed docstrings)
+- [ ] Run `tox -e mypy` and `tox -e pyright` — type checking (will catch renamed/removed APIs in samples)
 - [ ] Update samples if any operations were renamed or removed
+- [ ] Update tests if any operations were renamed, removed, or had return type changes
+- [ ] Run `pytest tests/ -v` in playback mode — should pass 202 tests
+- [ ] Re-record tests if HTTP endpoints changed (not needed for Python-only renames)
 - [ ] Update `CHANGELOG.md` with a release date if preparing a release

@@ -8,6 +8,7 @@ Unit tests for Map Legend operations.
 """
 import io
 import logging
+from collections.abc import MutableMapping
 from pathlib import Path
 from devtools_testutils import recorded_by_proxy
 from testpreparer import PlanetaryComputerProClientTestBase, PlanetaryComputerPreparer
@@ -62,10 +63,10 @@ class TestPlanetaryComputerMapLegends(PlanetaryComputerProClientTestBase):
         test_logger.info(f"Response type: {type(response)}")
         test_logger.info(f"Response: {response}")
 
-        # Assert response is a dictionary
+        # Assert response is a MutableMapping (model or dict)
         assert isinstance(
-            response, dict
-        ), f"Response should be a dict, got {type(response)}"
+            response, MutableMapping
+        ), f"Response should be a MutableMapping, got {type(response)}"
         assert len(response) > 0, "Response should not be empty"
 
         # Assert MTBS Severity classes are present (0-6)
@@ -349,8 +350,8 @@ class TestPlanetaryComputerMapLegends(PlanetaryComputerProClientTestBase):
         test_logger.info(f"Response type: {type(response)}")
         test_logger.info(f"Response: {response}")
 
-        # Assert response is a dictionary
-        assert isinstance(response, dict), "Response should be a dict"
+        # Assert response is a MutableMapping (model or dict)
+        assert isinstance(response, MutableMapping), "Response should be a MutableMapping"
 
         # Validate all keys are string class values
         for key in response.keys():
